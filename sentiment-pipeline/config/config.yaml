@@ -1,0 +1,34 @@
+kafka:
+  bootstrap_servers: localhost:9092
+  topic: sentiment_tweets
+  group_id: sentiment_consumer_group
+
+twitter:
+  bearer_token: ${TWITTER_BEARER_TOKEN}
+  search_terms:
+    - Tesla
+    - Bitcoin
+    - ChatGPT
+    - Narendra Modi
+    - Cricket
+  max_results: 10
+
+mongodb:
+  uri: mongodb://localhost:27017/
+  database: sentiment_db
+  collection: processed_tweets
+
+redis:
+  url: redis://localhost:6379
+  cache_expire: 3600
+
+model:
+  default: vader
+  transformers:
+    distilbert: distilbert-base-uncased-finetuned-sst-2-english
+    roberta: cardiffnlp/twitter-roberta-base-sentiment-latest
+    bert: nlptown/bert-base-multilingual-uncased-sentiment
+
+app:
+  produce_interval: 5
+  dashboard_refresh: 5

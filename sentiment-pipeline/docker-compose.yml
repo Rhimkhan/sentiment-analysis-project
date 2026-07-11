@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+      - ZOO_LOG_LEVEL=INFO
+      - ZOO_PORT_NUMBER=2181
+    ports:
+      - '2181:2181'
+    healthcheck:
+      test: ['CMD', 'zkCli.sh', '-server', 'localhost:2181', 'ruok']
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  kafka:
+    image: bitnami/kafka:latest
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    ports:
+      - '9092:9092'
+    healthcheck:
+      test: ['CMD', 'kafka-broker-api-versions', '--bootstrap-server', 'kafka:9092']
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongo', '--eval', 'db.adminCommand("ping").ok']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    command: ['redis-server', '--save', '900', '1', '--loglevel', 'warning']
+
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    working_dir: /app
+    volumes:
+      - .:/app:cached
+    environment:
+      - PYTHONPATH=/app
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=sentiment_tweets
+      - PRODUCE_INTERVAL=2
+      - USE_MOCK=true
+    depends_on:
+      - kafka
+    command: python -m src.producer.twitter_producer --mock --interval 2
+
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.processor
+    working_dir: /app
+    volumes:
+      - .:/app:cached
+    environment:
+      - PYTHONPATH=/app
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=sentiment_tweets
+      - KAFKA_GROUP_ID=sentiment_consumer_group
+      - MONGO_URI=mongodb://mongo:27017/
+      - MONGO_DB=sentiment_db
+      - MONGO_COLLECTION=processed_tweets
+      - SENTIMENT_MODEL=vader
+      - USE_GPU=false
+    depends_on:
+      - kafka
+      - mongo
+    command: python -m src.consumer.sentiment_consumer
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    working_dir: /app
+    volumes:
+      - .:/app:cached
+    ports:
+      - '8501:8501'
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - mongo
+      - processor
+    command: streamlit run src/dashboard/app.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS false
+
+volumes:
+  mongo_data:
+
